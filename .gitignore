@@ -1,0 +1,8 @@
+# Used for development
+caddy
+Caddyfile
+config.json
+srv/
+
+# go
+go.sum
