@@ -1,0 +1,12 @@
+{{ define "page" }}
+    {{ with .Files }}
+    <h1 class="text-xl mx-4 p-2">Repository Tree</h1>
+    <div class="grid grid-cols-1 border-y border-neutral-300 divide-y divide-neutral-300 mb-4 mx-4">
+        {{ range . }}
+        <p class="px-4">{{ .Mode }} | {{.Name}} | {{.Commit.Message}}</p>
+        {{ end }}
+    </div>
+    {{ else }}
+    <h1 class="m-5 text-xl text-center">Repository is empty!</h1>
+    {{ end }}
+{{ end }}

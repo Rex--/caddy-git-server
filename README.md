@@ -78,18 +78,16 @@ git clone https://example.com/git/example.git
 **Caddyfile** - The `git_server` directive attempts to mimic the built-in
 `file_server` directive +/- a few options.
 ```
-git_server <match> [browse] {
+git_server [match] [browse] {
     root <path>
-    template <template.html>
-    protocol dumb|smart|both
+    template_dir <path/to/templates/>
 }
 ```
 
 - `<match>` - request pattern to match
 - `browse` - enable repository browser (available at the root of the repo)
 - `root <path>` - root path of git directories
-- `template <template.html>` - template to use for browse page
-- `protocol dumb|smart|both` - git http transfer protocol to use
+- `template_dir <path>` - directory containing templates that override the defaults.
 
 
 **JSON**
@@ -98,7 +96,6 @@ git_server <match> [browse] {
     "handler": "git_server",
     "root": "<path>",
     "browse": true|false,
-    "template": "<browse.html>",
-    "protocol": "dumb|smart|both"
+    "template_dir": "<path>"
 }
 ```

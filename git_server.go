@@ -2,9 +2,12 @@ package gitserver
 
 import (
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -21,14 +24,18 @@ func init() {
 
 type GitServer struct {
 	// Git http protocol to use: 'dumb' or 'smart' or 'both' (default)
+	// Note this doesn't actually do anything currently, only the dumb protocol is implemented.
 	Protocol string `json:"protocol,omitempty"`
 
 	// Path to directory containing bare git repos (<repo>.git)
 	Root string `json:"root,omitempty"`
 
 	// Enable repo browser
-	Browse   bool   `json:"browse,omitempty"`
-	Template string `json:"template,omitempty"`
+	Browse      bool   `json:"browse,omitempty"`
+	TemplateDir string `json:"template_dir,omitempty"`
+
+	// If IgnorePrefix is defined we strip it from the URL path
+	IgnorePrefix string `json:"ignore_prefix,omitempty"`
 
 	// Mirror a git repo
 	// Mirror        bool `json:"mirror,omitempty"`
@@ -37,6 +44,11 @@ type GitServer struct {
 	// File server module that serves static git files
 	// FileServerRaw json.RawMessage        `json:"file_server,omitempty" caddy:"namespace=http.handlers inline_key=handler"`
 	FileServer *fileserver.FileServer `json:"-"`
+
+	// This is a list of relative paths to repositories in the root directory.
+	// If set, the IgnorePrefix is stripped
+	repositories             []string
+	repositoriesLastModified time.Time
 
 	logger *zap.Logger
 }
@@ -85,8 +97,8 @@ func (gsrv *GitServer) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				}
 			case "browse":
 				gsrv.Browse = true
-			case "template":
-				if !d.AllArgs(&gsrv.Template) {
+			case "template_dir":
+				if !d.AllArgs(&gsrv.TemplateDir) {
 					return d.ArgErr()
 				}
 				// case "mirror":
@@ -96,6 +108,10 @@ func (gsrv *GitServer) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				// 	} else {
 				// 		return d.ArgErr()
 				// 	}
+			case "ignore_prefix":
+				if !d.AllArgs(&gsrv.IgnorePrefix) {
+					return d.ArgErr()
+				}
 			}
 		}
 	}
@@ -136,61 +152,50 @@ func (gsrv *GitServer) Provision(ctx caddy.Context) error {
 	return nil
 }
 
+func (gsrv GitServer) Validate() error {
+	fmt.Println(gsrv)
+	return nil
+}
+
 // ServeHTTP implements http.MiddlewareHandler
-func (gsrv GitServer) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+func (gsrv *GitServer) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 
-	// Here we try to detect git clients and forward them on to a special git protocol handler.
-	// All requests that enter the git client handler will return a response.
-	if r.Header.Get("Git-Protocol") != "" || strings.HasPrefix(r.UserAgent(), "git") {
-		gsrv.logger.Debug("handling git client",
-			zap.String("git_protocol", r.Header.Get("Git-Protocol")),
-			zap.String("git_client", r.UserAgent()),
-			zap.String("path", r.RequestURI))
+	// Get repo path on disk
+	repoPath, err := gsrv.getRepoPath(r)
+	if err == nil {
+		// fmt.Println("found repo", repoPath)
 
-		return gsrv.serveGitClient(w, r, next)
-	}
+		// Here we try to detect git clients and forward them on to a special git protocol handler.
+		// All requests that enter the git client handler will return a response.
+		if r.Header.Get("Git-Protocol") != "" || strings.HasPrefix(r.UserAgent(), "git") {
+			gsrv.logger.Debug("handling git client",
+				zap.String("git_protocol", r.Header.Get("Git-Protocol")),
+				zap.String("git_client", r.UserAgent()),
+				zap.String("req_path", r.RequestURI),
+				zap.String("repo_path", repoPath),
+			)
 
-	// If browse is enabled we check if the requested repo exists and pawn it off to a browser handler.
-	if gsrv.Browse {
-		// Caddy placeholder replacer
-		repl := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+			return gsrv.serveGitClient(repoPath, w, r, next)
+		}
 
-		// Construct the filesystem path based on our root and the request url
-		root := repl.ReplaceAll(gsrv.Root, ".")
-		requestPath := strings.TrimSuffix(r.URL.Path, "/")
-		repoPath := caddyhttp.SanitizedPathJoin(root, requestPath)
-
-		// Try to find the repo
-		repoDir, err := os.Stat(repoPath)
-		if err != nil {
-			// Try with .git
-			if !strings.HasSuffix(repoPath, ".git") {
-				repoPath += ".git"
-				repoDir, err = os.Stat(repoPath)
-				if err != nil {
-					repoDir = nil
-				}
-			} else {
-				repoDir = nil
+		// If browse is enabled we check if the requested repo exists and pawn it off to a browser handler.
+		if gsrv.Browse {
+			// Redirect /<repo>.git to /<repo>
+			requestPath := strings.TrimSuffix(r.URL.Path, "/")
+			if strings.HasSuffix(requestPath, ".git") {
+				http.Redirect(w, r, strings.TrimSuffix(requestPath, ".git"), http.StatusPermanentRedirect)
+				return nil
 			}
-		}
 
-		// redirect /<repo>.git to /<repo> if <repo> exists
-		if strings.HasSuffix(requestPath, ".git") {
-			http.Redirect(w, r, strings.TrimSuffix(requestPath, ".git"), http.StatusTemporaryRedirect)
-			return nil
-		}
-
-		// If the repo exists and we try to request it, pass it on to the browse handler
-		if repoDir != nil && repoDir.IsDir() {
-			gsrv.logger.Debug("handling web client",
-				zap.String("git_repo", repoPath),
-				zap.String("path", r.RequestURI))
+			// Pass it on to the browse handler
+			gsrv.logger.Debug("handling web browser",
+				zap.String("repo_path", repoPath),
+				zap.String("req_path", r.URL.Path))
 			return gsrv.serveGitBrowser(repoPath, w, r, next)
 		}
 	}
 
-	// We pass on the request if we don't touch it
+	// We pass on the request if it doesn't contain a git repo
 	return next.ServeHTTP(w, r)
 }
 
@@ -198,7 +203,62 @@ func (gsrv GitServer) ServeHTTP(w http.ResponseWriter, r *http.Request, next cad
 func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
 	var gsrv GitServer
 	err := gsrv.UnmarshalCaddyfile(h.Dispenser)
-	return gsrv, err
+	return &gsrv, err
+}
+
+func (gsrv *GitServer) getRepoPath(r *http.Request) (string, error) {
+	// Update repository list
+	repl := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	root := repl.ReplaceAll(gsrv.Root, ".")
+	gsrv.updateRepositories(root)
+
+	// Check if request path begins with a repo path
+	for _, path := range gsrv.repositories {
+		if strings.HasPrefix(strings.TrimPrefix(r.URL.Path, "/"), path) {
+			return filepath.Join(root, path) + ".git", nil
+		}
+	}
+
+	return "", fmt.Errorf("repo not found")
+}
+
+func (gsrv *GitServer) updateRepositories(root string) {
+
+	rootDir, err := os.Stat(root)
+	if err != nil {
+		fmt.Println("What? - updateRepositories()", err)
+		return
+	}
+
+	// If the root has been modified since last time, update the repository list
+	modTime := rootDir.ModTime()
+	if modTime.After(gsrv.repositoriesLastModified) {
+		var newRepos []string
+		filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				fmt.Println("walk error", err)
+				return err
+			}
+
+			// Right now we determine a git repo by a directory with the '.git' suffix
+			if d.IsDir() && filepath.Ext(path) == ".git" {
+				// fmt.Println("Found repo", path)
+				// Strip root from path
+				path = strings.TrimPrefix(path, root)
+				// Strip '/' prefix from path
+				path = strings.TrimPrefix(path, "/")
+				// Strip .git suffix
+				path = strings.TrimSuffix(path, ".git")
+				newRepos = append(newRepos, path)
+				return fs.SkipDir
+			}
+			return nil
+		})
+
+		// Update git server
+		gsrv.repositories = newRepos
+		gsrv.repositoriesLastModified = modTime
+	}
 }
 
 // Interface Guards

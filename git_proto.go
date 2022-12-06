@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -14,35 +13,31 @@ import (
 )
 
 // Serve a git client
-func (gs *GitServer) serveGitClient(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+func (gs *GitServer) serveGitClient(repoPath string, w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 
 	// Only dumb protocol is implemented at the moment
-	return gs.serveGitDumb(w, r, next)
+	return gs.serveGitDumb(repoPath, w, r, next)
 }
 
 // Serve dumb git client files. These are generated on-the-fly
-func (gs *GitServer) serveGitDumb(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+func (gs *GitServer) serveGitDumb(repoPath string, w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 
-	repl := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	// repl := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
 
-	root := repl.ReplaceAll(gs.Root, ".")
+	// root := repl.ReplaceAll(gs.Root, ".")
 
 	// Detect 'info/refs' and generate and serve
 	if strings.HasSuffix(r.URL.Path, "info/refs") {
-		reqRepo := strings.TrimSuffix(r.URL.Path, "info/refs")
-		gitDir := caddyhttp.SanitizedPathJoin(root, reqRepo)
-
 		// Try to open repo
-		repo, err := git.PlainOpen(gitDir)
+		repo, err := git.PlainOpen(repoPath)
 		if err != nil {
-			return caddyhttp.Error(http.StatusNotFound, fmt.Errorf("repository not found"))
+			return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("could not load repository"))
 		}
 
 		// Log the clone attempt
 		gs.logger.Info("git clone attempt",
 			zap.String("path", r.RequestURI),
-			zap.String("request_repo", reqRepo),
-			zap.String("git_repo", gitDir),
+			zap.String("git_repo", repoPath),
 			zap.String("git_protocol", r.Header.Get("Git-Protocol")),
 			zap.String("git_client", r.UserAgent()),
 		)
@@ -74,8 +69,8 @@ func (gs *GitServer) serveGitDumb(w http.ResponseWriter, r *http.Request, next c
 		})
 
 		gs.logger.Debug("generating dumb info/refs",
-			zap.String("git_repo", gitDir),
-			zap.String("request_repo", reqRepo),
+			zap.String("git_repo", repoPath),
+			zap.String("req_path", r.URL.Path),
 			zap.String("refs", strings.Join(refs, ",")),
 		)
 
@@ -108,17 +103,15 @@ func (gs *GitServer) serveGitDumb(w http.ResponseWriter, r *http.Request, next c
 
 	// Detect 'objects/info/packs' and generate and serve
 	if strings.HasSuffix(r.URL.Path, "objects/info/packs") {
-		reqRepo := strings.TrimSuffix(r.URL.Path, "objects/info/packs")
-		gitDir := caddyhttp.SanitizedPathJoin(root, reqRepo)
 
 		// Try to open repo
-		_, err := git.PlainOpen(gitDir)
+		_, err := git.PlainOpen(repoPath)
 		if err != nil {
 			return caddyhttp.Error(http.StatusInternalServerError, err)
 		}
 
 		// Get packs in repo
-		packFiles, err := filepath.Glob(filepath.Join(gitDir, "objects/pack/*.pack"))
+		packFiles, err := filepath.Glob(filepath.Join(repoPath, "objects/pack/*.pack"))
 		if err != nil {
 			return caddyhttp.Error(http.StatusInternalServerError, err)
 		}

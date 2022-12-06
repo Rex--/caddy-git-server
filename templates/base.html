@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <title>{{.Name}}{{ if ne .Page "home" }} - {{.Page}}{{ end }} - {{ .Host }}</title>
+</head>
+<body>
+    <div class="flex flex-col m-2 border border-neutral-300 shadow">
+        
+        <!-- Header -->
+        <div class="flex flex-row flex-wrap justify-between bg-neutral-200">
+            <!-- Heading -->
+            <div class="grow">
+                <h1 class="text-3xl font-bold pl-4 pr-2">
+                    <span class="inline-block">{{.Host}}</span>
+                    <span class="inline-block">
+                        {{range (split .Path "/")}}
+                            {{if .}}
+                            / <span>{{.}}</span>
+                            {{end}}
+                        {{end}}
+                    </span>
+                </h1>
+            </div>
+            
+            <!-- Clone URL and git icon -->
+            <div class="grow flex flex-row justify-end items-center m-2">
+                <code class="select-all mr-1.5 pt-1 text-right">
+                    <span class="inline-block">git clone</span>
+                    <span class="inline-block">{{.CloneURL}}</span>
+                </code>
+                <a href="https://git-scm.com/">
+                    <img src="data:image/ico;base64,{{.Assets.GitIcon}}">
+                </a>
+            </div>
+
+            <!-- Navigation -->
+            <div class="basis-full">
+                <div class="text-xl ml-12 mb-0">
+                    <a href="/{{.Root}}" class="pb-0.5 px-1 {{ if eq .Page "home" }}bg-neutral-300{{end}}">home</a>
+                    <a href="/{{.Root}}/log" class="pb-0.5 px-1 {{ if eq .Page "log" }}bg-neutral-300{{end}}">log</a>
+                    <a href="/{{.Root}}/tree" class="pb-0.5 px-1 {{ if eq .Page "tree" }}bg-neutral-300{{end}}">tree</a>
+                </div>
+                <div class="w-full h-1 bg-neutral-300"></div>
+            </div>
+        </div>
+
+        <!-- Page Content -->
+        {{ template "page" . }}
+        
+        <!-- Footer -->
+        <div class="flex flex-row flex-wrap justify-between items-center bg-neutral-100 py-0.5">
+            <p class="grow px-2">{{.Name}} - {{.Tagline}}</p>
+            <p class="grow px-2 text-sm text-right">generated {{.Now}}</p>
+        </div>
+    </div>
+</body>
+</html>

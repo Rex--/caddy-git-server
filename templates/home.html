@@ -1,0 +1,48 @@
+{{ define "page" }}
+<div class="flex flex-row flex-wrap justify-evenly">
+    <!-- About -->
+    <div class="basis-auto">
+        <table class="table-auto border-collapse border border-neutral-300 m-4">
+            <tr>
+                <th class="border-y border-neutral-300 bg-neutral-200 text-right px-2">Repository</th>
+                <td class="border-y border-neutral-300 px-2">{{.Name}}</td>
+            </tr>
+            <tr>
+                <th class="border-y border-neutral-300 bg-neutral-200 text-right px-2">Author</th>
+                <td class="border-y border-neutral-300 px-2">Rex McKinnon</td>
+            </tr>
+            <tr>
+                <th class="border-y border-neutral-300 bg-neutral-200 text-right px-2">Updated</th>
+                <td class="border-y border-neutral-300 px-2">{{.Now}}</td>
+            </tr>
+            <tr>
+                <th class="border-y border-neutral-300 bg-neutral-200 text-right px-2">Description</th>
+                <td class="border-y border-neutral-300 px-2">{{.Tagline}}</td>
+            </tr>
+        </table>
+    </div>
+    
+    <!-- Ref sidebar -->
+    <div class="basis-3/4 md:basis-1/4 xl:basis-1/6">
+        <div class="bg-neutral-300 rounded px-2 mt-2">
+            <h2 class="text-lg">branches</h2>
+        </div>
+        <div class="mx-4 px-2  overflow-y-auto max-h-32 border-x border-b border-neutral-300  mb-1">
+            {{range .Branches}}<p class="hover:bg-cyan-200 px-2">{{.Name}}</p>{{end}}
+        </div>
+        {{ with .Tags }}
+        <div class="bg-neutral-300 rounded px-2">
+            <h2 class="text-lg">tags</h2>
+        </div>
+        <div class="mx-4 px-2 overflow-y-scroll max-h-32 border-x border-b border-neutral-300 mb-1">
+            {{range .}}<p class="hover:bg-cyan-200 px-2">{{.Name}}</p>{{end}}
+        </div>
+        {{ end }}
+    </div>
+
+    <!-- Long description -->
+    {{if .Description}}
+    <code class="basis-full whitespace-pre-wrap px-2 pt-2">{{.Description}}</code>
+    {{end}}
+</div>
+{{ end }}
