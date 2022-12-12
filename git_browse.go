@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -285,6 +286,7 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	if pageName == "log" {
 		// Extract commits if needed
 		commits, _ := repo.Log(&git.LogOptions{From: *rev})
+		var unsortedCommits = make(map[string]GitCommit)
 		commits.ForEach(func(c *object.Commit) error {
 			commit := GitCommit{
 				Hash:      c.Hash.String(),
@@ -292,9 +294,19 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 				Message:   c.Message,
 				Date:      c.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
 			}
-			gb.Commits = append(gb.Commits, commit)
+			unsortedCommits[c.Committer.When.UTC().Format("2006-01-02 03:04:05 PM")] = commit
 			return nil
 		})
+
+		keys := make([]string, 0, len(unsortedCommits))
+		for k := range unsortedCommits {
+			keys = append(keys, k)
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+
+		for _, key := range keys {
+			gb.Commits = append(gb.Commits, unsortedCommits[key])
+		}
 
 	} else if pageName == "tree" {
 		refCommit, _ := repo.CommitObject(*rev)
@@ -318,6 +330,9 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 				dirs = append(dirs, entry.Name)
 			}
 		}
+		// Sort files and dirs list in alphabetical order
+		sort.Strings(files)
+		sort.Strings(dirs)
 		commitNodeIndex := commitgraph.NewObjectCommitNodeIndex(repo.Storer)
 		commitNode, err := commitNodeIndex.Get(*rev)
 		if err != nil {
@@ -333,14 +348,15 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 			return caddyhttp.Error(503, err)
 		}
 
-		for path, rev := range fileRevs {
-			fileObj, err := rev.File(filepath.Join(pageArgs, path))
+		for _, file := range files {
+			rev := fileRevs[file]
+			fileObj, err := rev.File(filepath.Join(pageArgs, file))
 			if err != nil {
-				fmt.Printf("Couldn't find file: %s %v\n", pageArgs+path, err)
+				fmt.Printf("Couldn't find file: %s %v\n", pageArgs+file, err)
 			} else {
 				f := GitFile{
 					Hash: fileObj.Hash.String(),
-					Name: path,
+					Name: file,
 					Mode: fileObj.Mode.String(),
 					Commit: GitCommit{
 						Hash:      rev.Hash.String(),
@@ -353,10 +369,10 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 			}
 		}
 
-		for path, rev := range dirRevs {
-			// Directory ?
+		for _, dir := range dirs {
+			rev := dirRevs[dir]
 			d := GitDir{
-				Name: path,
+				Name: dir,
 				Commit: GitCommit{
 					Hash:      rev.Hash.String(),
 					Committer: rev.Author.Name,
