@@ -286,7 +286,7 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	if pageName == "log" {
 		// Extract commits if needed
 		commits, _ := repo.Log(&git.LogOptions{From: *rev})
-		var unsortedCommits = make(map[string]GitCommit)
+		var unsortedCommits = make(map[int64]GitCommit)
 		commits.ForEach(func(c *object.Commit) error {
 			commit := GitCommit{
 				Hash:      c.Hash.String(),
@@ -294,18 +294,18 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 				Message:   c.Message,
 				Date:      c.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
 			}
-			unsortedCommits[c.Committer.When.UTC().Format("2006-01-02 03:04:05 PM")] = commit
+			unsortedCommits[c.Committer.When.Unix()] = commit
 			return nil
 		})
 
-		keys := make([]string, 0, len(unsortedCommits))
+		keys := make([]int, 0, len(unsortedCommits))
 		for k := range unsortedCommits {
-			keys = append(keys, k)
+			keys = append(keys, int(k))
 		}
-		sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+		sort.Sort(sort.Reverse(sort.IntSlice(keys)))
 
 		for _, key := range keys {
-			gb.Commits = append(gb.Commits, unsortedCommits[key])
+			gb.Commits = append(gb.Commits, unsortedCommits[int64(key)])
 		}
 
 	} else if pageName == "tree" {
