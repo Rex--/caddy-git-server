@@ -1,4 +1,5 @@
 {{ define "page" }}
+{{ $rootURL := .Root }}
 <div class="flex flex-row flex-wrap justify-evenly">
     <!-- About -->
     <div class="basis-auto">
@@ -27,15 +28,23 @@
         <div class="bg-neutral-300 rounded px-2 mt-2">
             <h2 class="text-lg">branches</h2>
         </div>
-        <div class="mx-4 px-2  overflow-y-auto max-h-32 border-x border-b border-neutral-300  mb-1">
-            {{range .Branches}}<p class="hover:bg-cyan-200 px-2">{{.Name}}</p>{{end}}
+        <div class="grid grid-cols-1 mx-4 overflow-y-auto max-h-32 border-x border-b border-neutral-300 mb-1">
+            {{range .Branches}}
+            <a href="/{{$rootURL}}?branch={{.Name}}">
+                <div class="hover:bg-neutral-100 px-4">{{.Name}}</div>
+            </a>
+            {{end}}
         </div>
         {{ with .Tags }}
         <div class="bg-neutral-300 rounded px-2">
             <h2 class="text-lg">tags</h2>
         </div>
-        <div class="mx-4 px-2 overflow-y-scroll max-h-32 border-x border-b border-neutral-300 mb-1">
-            {{range .}}<p class="hover:bg-cyan-200 px-2">{{.Name}}</p>{{end}}
+        <div class="grid grid-cols-1 mx-4 overflow-y-scroll max-h-32 border-x border-b border-neutral-300 mb-1">
+            {{range .}}
+            <a href="/{{$rootURL}}?tag={{.Name}}">
+                <div class="hover:bg-cyan-200 px-4">{{.Name}}</div>
+            </a>
+            {{end}}
         </div>
         {{ end }}
     </div>

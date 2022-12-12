@@ -2,7 +2,6 @@ package gitserver
 
 import (
 	_ "embed"
-	"fmt"
 	"html/template"
 	"io"
 	"net/http"
@@ -258,93 +257,86 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 		return nil
 	})
 
+	var refStr = "HEAD"
+	if r.URL.Query().Has("ref") {
+		refStr = r.URL.Query().Get("ref")
+	} else if r.URL.Query().Has("branch") {
+		refStr = "refs/heads/" + r.URL.Query().Get("branch")
+	} else if r.URL.Query().Has("tag") {
+		refStr = "refs/tags/" + r.URL.Query().Get("tag")
+	}
+
+	rev, err := repo.ResolveRevision(plumbing.Revision(refStr))
+	if err != nil {
+		return caddyhttp.Error(503, err)
+	}
+
 	if pageName == "log" {
 		// Extract commits if needed
-		ref, err := repo.Head()
-		if err == nil {
-			commits, _ := repo.Log(&git.LogOptions{From: ref.Hash()})
-			commits.ForEach(func(c *object.Commit) error {
-				commit := GitCommit{
-					Hash:      c.Hash.String(),
-					Committer: c.Committer.String(),
-					Message:   c.Message,
-					Date:      c.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
-				}
-				gb.Commits = append(gb.Commits, commit)
-				return nil
-			})
-		}
+		commits, _ := repo.Log(&git.LogOptions{From: *rev})
+		commits.ForEach(func(c *object.Commit) error {
+			commit := GitCommit{
+				Hash:      c.Hash.String(),
+				Committer: c.Author.String(),
+				Message:   c.Message,
+				Date:      c.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
+			}
+			gb.Commits = append(gb.Commits, commit)
+			return nil
+		})
 
 	} else if pageName == "tree" {
-		// Get list of files if needed
-		ref, err := repo.Head()
-		if err == nil {
-			refCommit, _ := repo.CommitObject(ref.Hash())
-			tree, _ := refCommit.Tree()
-			var paths []string
-			for _, entry := range tree.Entries {
-				paths = append(paths, entry.Name)
-			}
-			commitNodeIndex := commitgraph.NewObjectCommitNodeIndex(repo.Storer)
-			commitNode, err := commitNodeIndex.Get(ref.Hash())
+		refCommit, _ := repo.CommitObject(*rev)
+		tree, _ := refCommit.Tree()
+		var paths []string
+		for _, entry := range tree.Entries {
+			paths = append(paths, entry.Name)
+		}
+		commitNodeIndex := commitgraph.NewObjectCommitNodeIndex(repo.Storer)
+		commitNode, err := commitNodeIndex.Get(*rev)
+		if err != nil {
+			return caddyhttp.Error(503, err)
+		}
+		revs, _ := getLastCommitForPaths(commitNode, "", paths)
+
+		for path, rev := range revs {
+			fileObj, err := rev.File(path)
+			var f GitFile
 			if err != nil {
-				return caddyhttp.Error(503, err)
-			}
-			revs, _ := getLastCommitForPaths(commitNode, "", paths)
-
-			for path, rev := range revs {
-				fileObj, err := rev.File(path)
-				var f GitFile
-				if err != nil {
-					fmt.Printf("Couldn't find file: %s\n", path)
-					// return caddyhttp.Error(503, err)
-					// Directory ?
-					f = GitFile{
-						Name: path,
-						Mode: "dir",
-						Commit: GitCommit{
-							Hash:      rev.Hash.String(),
-							Committer: rev.Committer.Name,
-							Date:      rev.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
-							Message:   rev.Message,
-						},
-					}
-				} else {
-
-					f = GitFile{
-						Name: fileObj.Name,
-						Mode: fileObj.Mode.String(),
-						Commit: GitCommit{
-							Hash:      rev.Hash.String(),
-							Committer: rev.Committer.Name,
-							Date:      rev.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
-							Message:   rev.Message,
-						},
-					}
+				// fmt.Printf("Couldn't find file: %s\n", path)
+				// Directory ?
+				f = GitFile{
+					Name: path,
+					Mode: "dir",
+					Commit: GitCommit{
+						Hash:      rev.Hash.String(),
+						Committer: rev.Author.Name,
+						Date:      rev.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
+						Message:   rev.Message,
+					},
 				}
-				gb.Files = append(gb.Files, f)
-			}
+			} else {
 
-			// for _, entry := range tree.Entries {
-			// 	blob, err := repo.BlobObject(entry.Hash)
-			// 	if err != nil {
-			// 		return caddyhttp.Error(503, err)
-			// 	}
-			// 	f := GitFile{
-			// 		Name: entry.Name,
-			// 		Mode: entry.Mode.String(),
-			// 	}
-			// 	gb.Files = append(gb.Files, f)
-			// }
+				f = GitFile{
+					Name: fileObj.Name,
+					Mode: fileObj.Mode.String(),
+					Commit: GitCommit{
+						Hash:      rev.Hash.String(),
+						Committer: rev.Author.Name,
+						Date:      rev.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
+						Message:   rev.Message,
+					},
+				}
+			}
+			gb.Files = append(gb.Files, f)
 		}
 	} else if pageName == "home" {
-		// Get general information about REF
-		ref, err := repo.Head()
-		if err == nil {
-			refCommit, _ := repo.CommitObject(ref.Hash())
-			gb.Updated = refCommit.Committer.When.UTC().Format("2006-01-02 03:04:05 PM")
-			gb.Committer = refCommit.Committer.Name
+		refCommit, err := repo.CommitObject(*rev)
+		if err != nil {
+			return caddyhttp.Error(503, err)
 		}
+		gb.Updated = refCommit.Committer.When.UTC().Format("2006-01-02 03:04:05 PM")
+		gb.Committer = refCommit.Author.String()
 	}
 
 	gsrv.logger.Info("serving git browser",
