@@ -1,16 +1,22 @@
 {{ define "page" }}
-    {{ with .Files }}
+{{ $root := .Root }}
+{{ $path := .Path }}
     <h1 class="text-xl mx-4 p-2">Repository Tree</h1>
     <div class="grid grid-cols-1 border-y border-neutral-300 divide-y divide-neutral-300 mb-4 mx-4">
-        {{ range . }}
+        {{ range .Dirs }}
         <div class="flex flex-row px-4">
-            <span class="flex-none">{{.Name}}</span>
+            <span class="flex-none"><a class="cursor-pointer" onclick="window.location='{{$path}}/{{.Name}}'+window.location.search;">{{.Name}}/</a></span>
+            <span class="grow font-mono text-right px-4 truncate">{{index (split .Commit.Message "\n") 0}}</span>
+            <span class="flex-none font-bold text-right">{{.Commit.Date}}</span>
+        </div>
+        {{ end }}
+        {{ range .Files }}
+        <div class="flex flex-row px-4">
+            <span class="flex-none"><a class="cursor-pointer" onclick="window.location='/{{$root}}/blob/{{.Hash}}'+window.location.search;">{{.Name}}</a></span>
             <span class="grow font-mono text-right px-4 truncate">{{index (split .Commit.Message "\n") 0}}</span>
             <span class="flex-none font-bold text-right">{{.Commit.Date}}</span>
         </div>
         {{ end }}
     </div>
-    {{ else }}
-    <h1 class="m-5 text-xl text-center">Repository is empty!</h1>
-    {{ end }}
+    <!-- <h1 class="m-5 text-xl text-center">Repository is empty!</h1> -->
 {{ end }}

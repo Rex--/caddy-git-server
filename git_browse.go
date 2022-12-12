@@ -2,6 +2,7 @@ package gitserver
 
 import (
 	_ "embed"
+	"fmt"
 	"html/template"
 	"io"
 	"net/http"
@@ -77,6 +78,10 @@ type GitBrowser struct {
 	Commits []GitCommit
 
 	Files []GitFile
+	Dirs  []GitDir
+
+	Blob     string
+	BlobInfo GitFile
 
 	// Static assets
 	Assets StaticAssets
@@ -103,8 +108,14 @@ type GitCommit struct {
 }
 
 type GitFile struct {
+	Hash   string
 	Name   string
 	Mode   string
+	Commit GitCommit
+}
+
+type GitDir struct {
+	Name   string
 	Commit GitCommit
 }
 
@@ -150,7 +161,7 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	// Any path after that is path arguments, currently only the reference
 	root := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer).ReplaceAll(gsrv.Root, ".")
 	pfx := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(repoPath, root), ".git"), "/")
-	pageName, _, defined := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/"), pfx), "/"), "/")
+	pageName, pageArgs, defined := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/"), pfx), "/"), "/")
 	if !defined && pageName == "" {
 		pageName = "home"
 	}
@@ -287,38 +298,49 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 
 	} else if pageName == "tree" {
 		refCommit, _ := repo.CommitObject(*rev)
-		tree, _ := refCommit.Tree()
-		var paths []string
+		tree, err := refCommit.Tree()
+		if err != nil {
+			return caddyhttp.Error(503, err)
+		}
+		if pageArgs != "" {
+			tree, err = tree.Tree(pageArgs)
+			if err != nil {
+				return caddyhttp.Error(503, err)
+			}
+		}
+		var files []string
+		var dirs []string
 		for _, entry := range tree.Entries {
-			paths = append(paths, entry.Name)
+			if entry.Mode.IsFile() {
+				files = append(files, entry.Name)
+			} else {
+				// Directory
+				dirs = append(dirs, entry.Name)
+			}
 		}
 		commitNodeIndex := commitgraph.NewObjectCommitNodeIndex(repo.Storer)
 		commitNode, err := commitNodeIndex.Get(*rev)
 		if err != nil {
 			return caddyhttp.Error(503, err)
 		}
-		revs, _ := getLastCommitForPaths(commitNode, "", paths)
+		// fmt.Println(pageArgs)
+		fileRevs, err := getLastCommitForPaths(commitNode, pageArgs, files)
+		if err != nil {
+			return caddyhttp.Error(503, err)
+		}
+		dirRevs, err := getLastCommitForPaths(commitNode, pageArgs, dirs)
+		if err != nil {
+			return caddyhttp.Error(503, err)
+		}
 
-		for path, rev := range revs {
-			fileObj, err := rev.File(path)
-			var f GitFile
+		for path, rev := range fileRevs {
+			fileObj, err := rev.File(filepath.Join(pageArgs, path))
 			if err != nil {
-				// fmt.Printf("Couldn't find file: %s\n", path)
-				// Directory ?
-				f = GitFile{
-					Name: path,
-					Mode: "dir",
-					Commit: GitCommit{
-						Hash:      rev.Hash.String(),
-						Committer: rev.Author.Name,
-						Date:      rev.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
-						Message:   rev.Message,
-					},
-				}
+				fmt.Printf("Couldn't find file: %s %v\n", pageArgs+path, err)
 			} else {
-
-				f = GitFile{
-					Name: fileObj.Name,
+				f := GitFile{
+					Hash: fileObj.Hash.String(),
+					Name: path,
 					Mode: fileObj.Mode.String(),
 					Commit: GitCommit{
 						Hash:      rev.Hash.String(),
@@ -327,9 +349,44 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 						Message:   rev.Message,
 					},
 				}
+				gb.Files = append(gb.Files, f)
 			}
-			gb.Files = append(gb.Files, f)
 		}
+
+		for path, rev := range dirRevs {
+			// Directory ?
+			d := GitDir{
+				Name: path,
+				Commit: GitCommit{
+					Hash:      rev.Hash.String(),
+					Committer: rev.Author.Name,
+					Date:      rev.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
+					Message:   rev.Message,
+				},
+			}
+			gb.Dirs = append(gb.Dirs, d)
+		}
+	} else if pageName == "blob" {
+		if pageArgs == "" {
+			return caddyhttp.Error(404, fmt.Errorf("no file specified in blob request"))
+		}
+		fileHash := plumbing.NewHash(pageArgs)
+		fileBlob, err := repo.BlobObject(fileHash)
+		if err != nil {
+			return caddyhttp.Error(404, err)
+		}
+		blobReader, err := fileBlob.Reader()
+		if err != nil {
+			return caddyhttp.Error(503, err)
+		}
+		strBuilder := new(strings.Builder)
+		_, err = io.Copy(strBuilder, blobReader)
+		if err != nil {
+			return caddyhttp.Error(503, err)
+		}
+		gb.Blob = strBuilder.String()
+		gb.BlobInfo.Name = fileBlob.ID().String()
+
 	} else if pageName == "home" {
 		refCommit, err := repo.CommitObject(*rev)
 		if err != nil {
