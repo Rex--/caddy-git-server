@@ -3,7 +3,11 @@
     <h1 class="text-xl mx-4 p-2">Commit Log</h1>
     <div class="grid grid-cols-1 border-y border-neutral-300 divide-y divide-neutral-300 mb-4 mx-4">
         {{ range . }}
-        <p class="px-4">{{.Date}} | {{.Author}} - {{.Message}}</p>
+        <div class="px-4">
+            <span class="inline-block font-bold">{{.Date}}</span>
+            <span class="inline-block pl-2">{{.Committer}}</span>
+            <span class="inline-block font-mono pl-2">{{.Message}}</span>
+        </div>
         {{ end }}
     </div>
     {{ else }}
