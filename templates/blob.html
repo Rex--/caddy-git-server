@@ -1,3 +1,14 @@
 {{ define "page" }}
-<h1>Filename: (.file)</h1>
+<p>{{.PageData.FileName}} - {{.PageData.BlobHash}}</p>
+{{ if (eq .PageData.FileType "image") }}
+<img src="{{string .PageData.Blob}}">
+{{ else if (eq .PageData.FileType "application") }}
+<a class="p-4 font-mono" href="{{string .PageData.Blob}}">View or download this file raw</a>
+{{ else if (eq .PageData.FileType "markdown") }}
+<div class="p-4">
+    {{ markdown .PageData.Blob }}
+</div>
+{{ else }}
+<p class="p-4 font-mono whitespace-pre overflow-x-auto">{{string .PageData.Blob}}</p>
+{{ end }}
 {{end}}

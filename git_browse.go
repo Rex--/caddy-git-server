@@ -14,7 +14,7 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/russross/blackfriday/v2"
 	"go.uber.org/zap"
 )
 
@@ -55,6 +55,8 @@ var static_assets = StaticAssets{
 	GitIcon: static_gitIcon,
 }
 
+type GitBrowserPage interface{}
+
 type GitBrowser struct {
 	Name        string
 	Tagline     string
@@ -65,50 +67,24 @@ type GitBrowser struct {
 	Now         string
 	Scheme      string
 	Page        string
+	PageArgs    string
 	Root        string
+	RefString   string
 
-	Branches []GitRef
-	Tags     []GitRef
+	PageData GitBrowserPage
 
-	Commits []GitCommit
-
-	Files []GitFile
+	Repo    *git.Repository
+	RefHash *plumbing.Hash
 
 	// Static assets
 	Assets StaticAssets
 }
 
-type GitRef struct {
-	// SHA1 hash
-	Hash string
-	// Ref type string, either 'refs/heads' or 'refs/tags
-	Type string
-	// Name of branch or tag
-	Name string
-}
-
-type GitCommit struct {
-	// SHA1 commit hash
-	Hash string
-	//Author of commit
-	Author string
-	// Committer of commit
-	Committer string
-	// Commit message
-	Message string
-	// Creation date (done by Author)
-	Date string
-}
-
-type GitFile struct {
-	Name   string
-	Mode   string
-	Commit GitCommit
-}
-
 type StaticAssets struct {
 	GitIcon string
 }
+
+var dateFmt string = "2006-01-02 15:04:05"
 
 func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 
@@ -121,6 +97,19 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	// Setup function map
 	fm := template.FuncMap{
 		"split": strings.Split,
+		"string": func(b []byte) string {
+			return string(b)
+		},
+		"markdown": func(b []byte) template.HTML {
+			marked := blackfriday.Run(b)
+			return template.HTML(marked)
+		},
+		"dir": func(path string) string {
+			return filepath.Dir(path)
+		},
+		"base": func(path string) string {
+			return filepath.Base(path)
+		},
 	}
 
 	// Decide which base template to use (default embedded or user defined)
@@ -148,7 +137,7 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	// Any path after that is path arguments, currently only the reference
 	root := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer).ReplaceAll(gsrv.Root, ".")
 	pfx := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(repoPath, root), ".git"), "/")
-	pageName, _, defined := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/"), pfx), "/"), "/")
+	pageName, pageArgs, defined := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/"), pfx), "/"), "/")
 	if !defined && pageName == "" {
 		pageName = "home"
 	}
@@ -186,13 +175,16 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 
 	// Create our template data object
 	gb := GitBrowser{
-		Name:   strings.TrimSuffix(filepath.Base(repoPath), ".git"),
-		Path:   r.URL.Path,
-		Page:   pageName,
-		Host:   r.Host,
-		Now:    time.Now().UTC().Format(time.UnixDate),
-		Assets: static_assets,
-		Root:   pfx,
+		Name:     strings.TrimSuffix(filepath.Base(repoPath), ".git"),
+		Path:     r.URL.Path,
+		Page:     pageName,
+		PageArgs: pageArgs,
+		Host:     r.Host,
+		Now:      time.Now().UTC().Format(time.UnixDate),
+		Assets:   static_assets,
+		Root:     pfx,
+
+		Repo: repo,
 	}
 
 	// Open the description file
@@ -225,70 +217,21 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	cloneUrl := r.URL.Scheme + "://" + r.Host + "/" + pfx + ".git"
 	gb.CloneURL = cloneUrl
 
-	// Extract branches from repo
-	branches, err := repo.Branches()
+	var refStr = "HEAD"
+	if r.URL.Query().Has("ref") {
+		refStr = r.URL.Query().Get("ref")
+	} else if r.URL.Query().Has("branch") {
+		refStr = "refs/heads/" + r.URL.Query().Get("branch")
+	} else if r.URL.Query().Has("tag") {
+		refStr = "refs/tags/" + r.URL.Query().Get("tag")
+	}
+	gb.RefString = refStr
+
+	rev, err := repo.ResolveRevision(plumbing.Revision(refStr))
 	if err != nil {
-		return caddyhttp.Error(http.StatusInternalServerError, err)
+		return caddyhttp.Error(503, err)
 	}
-	branches.ForEach(func(r *plumbing.Reference) error {
-		b := GitRef{
-			Hash: r.Hash().String(),
-			Type: r.Type().String(),
-			Name: r.Name().Short(),
-		}
-		gb.Branches = append(gb.Branches, b)
-		return nil
-	})
-
-	// Extract tags
-	tags, err := repo.Tags()
-	if err != nil {
-		return caddyhttp.Error(http.StatusInternalServerError, err)
-	}
-	tags.ForEach(func(r *plumbing.Reference) error {
-		t := GitRef{
-			Hash: r.Hash().String(),
-			Type: r.Type().String(),
-			Name: r.Name().Short(),
-		}
-		gb.Tags = append(gb.Tags, t)
-		return nil
-	})
-
-	if pageName == "log" {
-		// Extract commits if needed
-		ref, err := repo.Head()
-		if err == nil {
-			commits, _ := repo.Log(&git.LogOptions{From: ref.Hash()})
-			commits.ForEach(func(c *object.Commit) error {
-				commit := GitCommit{
-					Hash:      c.Hash.String(),
-					Author:    c.Author.String(),
-					Committer: c.Committer.String(),
-					Message:   c.Message,
-					Date:      c.Author.When.String(),
-				}
-				gb.Commits = append(gb.Commits, commit)
-				return nil
-			})
-		}
-
-	} else if pageName == "tree" {
-		// Get list of files if needed
-		ref, err := repo.Head()
-		if err == nil {
-			refCommit, _ := repo.CommitObject(ref.Hash())
-			tree, _ := refCommit.Tree()
-			for _, entry := range tree.Entries {
-				f := GitFile{
-					Name:   entry.Name,
-					Mode:   entry.Mode.String(),
-					Commit: GitCommit{Message: "Initial Commit - Added all files."},
-				}
-				gb.Files = append(gb.Files, f)
-			}
-		}
-	}
+	gb.RefHash = rev
 
 	gsrv.logger.Info("serving git browser",
 		zap.String("request_path", r.URL.Path),
@@ -298,7 +241,22 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 		zap.String("template_page", templatePageName),
 	)
 
-	// Fun with headers
+	if pageName == "log" {
+		gb.browseLog()
+	} else if pageName == "tree" {
+		gb.browseTree()
+	} else if pageName == "blob" {
+		gb.browseBlob()
+	} else if pageName == "home" {
+		gb.browseHome()
+	} else if pageName == "raw" {
+		gb.browseRaw()
+		// we just serve the raw file content after setting the mimetype
+		gb.serveRaw(w)
+		return nil
+	}
+
+	// Set content type header
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	// Write to connection

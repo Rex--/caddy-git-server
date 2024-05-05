@@ -162,37 +162,38 @@ func (gsrv *GitServer) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 
 	// Get repo path on disk
 	repoPath, err := gsrv.getRepoPath(r)
-	if err == nil {
-		// fmt.Println("found repo", repoPath)
+	if err != nil {
+		return next.ServeHTTP(w, r)
+	}
+	// fmt.Println("found repo", repoPath)
 
-		// Here we try to detect git clients and forward them on to a special git protocol handler.
-		// All requests that enter the git client handler will return a response.
-		if r.Header.Get("Git-Protocol") != "" || strings.HasPrefix(r.UserAgent(), "git") {
-			gsrv.logger.Debug("handling git client",
-				zap.String("git_protocol", r.Header.Get("Git-Protocol")),
-				zap.String("git_client", r.UserAgent()),
-				zap.String("req_path", r.RequestURI),
-				zap.String("repo_path", repoPath),
-			)
+	// Here we try to detect git clients and forward them on to a special git protocol handler.
+	// All requests that enter the git client handler will return a response.
+	if r.Header.Get("Git-Protocol") != "" || strings.HasPrefix(r.UserAgent(), "git") {
+		gsrv.logger.Debug("handling git client",
+			zap.String("git_protocol", r.Header.Get("Git-Protocol")),
+			zap.String("git_client", r.UserAgent()),
+			zap.String("req_path", r.RequestURI),
+			zap.String("repo_path", repoPath),
+		)
 
-			return gsrv.serveGitClient(repoPath, w, r, next)
+		return gsrv.serveGitClient(repoPath, w, r, next)
+	}
+
+	// If browse is enabled we check if the requested repo exists and pawn it off to a browser handler.
+	if gsrv.Browse {
+		// Redirect /<repo>.git to /<repo>
+		requestPath := strings.TrimSuffix(r.URL.Path, "/")
+		if strings.HasSuffix(requestPath, ".git") {
+			http.Redirect(w, r, strings.TrimSuffix(requestPath, ".git"), http.StatusPermanentRedirect)
+			return nil
 		}
 
-		// If browse is enabled we check if the requested repo exists and pawn it off to a browser handler.
-		if gsrv.Browse {
-			// Redirect /<repo>.git to /<repo>
-			requestPath := strings.TrimSuffix(r.URL.Path, "/")
-			if strings.HasSuffix(requestPath, ".git") {
-				http.Redirect(w, r, strings.TrimSuffix(requestPath, ".git"), http.StatusPermanentRedirect)
-				return nil
-			}
-
-			// Pass it on to the browse handler
-			gsrv.logger.Debug("handling web browser",
-				zap.String("repo_path", repoPath),
-				zap.String("req_path", r.URL.Path))
-			return gsrv.serveGitBrowser(repoPath, w, r, next)
-		}
+		// Pass it on to the browse handler
+		gsrv.logger.Debug("handling web browser",
+			zap.String("repo_path", repoPath),
+			zap.String("req_path", r.URL.Path))
+		return gsrv.serveGitBrowser(repoPath, w, r, next)
 	}
 
 	// We pass on the request if it doesn't contain a git repo

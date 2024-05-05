@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default values are for markdown */
+
+@layer base {
+    h1 {
+        @apply text-2xl;
+        text-decoration: underline;
+        @apply font-bold;
+    }
+    
+    h2 {
+        @apply text-xl;
+        @apply font-bold;
+    }
+
+    h3 {
+        @apply text-lg;
+        @apply font-semibold;
+    }
+
+    p {
+        @apply whitespace-pre;
+    }
+
+    ul {
+        @apply list-disc;
+        @apply list-inside;
+    }
+}
+
