@@ -2,23 +2,19 @@ package gitserver
 
 import (
 	_ "embed"
-	"fmt"
 	"html/template"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	"github.com/emirpasic/gods/trees/binaryheap"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/object/commitgraph"
+	"github.com/russross/blackfriday/v2"
 	"go.uber.org/zap"
 )
 
@@ -59,6 +55,8 @@ var static_assets = StaticAssets{
 	GitIcon: static_gitIcon,
 }
 
+type GitBrowserPage interface{}
+
 type GitBrowser struct {
 	Name        string
 	Tagline     string
@@ -69,60 +67,24 @@ type GitBrowser struct {
 	Now         string
 	Scheme      string
 	Page        string
+	PageArgs    string
 	Root        string
-	Updated     string
-	Committer   string
+	RefString   string
 
-	Branches []GitRef
-	Tags     []GitRef
+	PageData GitBrowserPage
 
-	Commits []GitCommit
-
-	Files []GitFile
-	Dirs  []GitDir
-
-	Blob     string
-	BlobInfo GitFile
+	Repo    *git.Repository
+	RefHash *plumbing.Hash
 
 	// Static assets
 	Assets StaticAssets
 }
 
-type GitRef struct {
-	// SHA1 hash
-	Hash string
-	// Ref type string, either 'refs/heads' or 'refs/tags
-	Type string
-	// Name of branch or tag
-	Name string
-}
-
-type GitCommit struct {
-	// SHA1 commit hash
-	Hash string
-	// Committer of commit
-	Committer string
-	// Commit message
-	Message string
-	// Creation date (done by Author)
-	Date string
-}
-
-type GitFile struct {
-	Hash   string
-	Name   string
-	Mode   string
-	Commit GitCommit
-}
-
-type GitDir struct {
-	Name   string
-	Commit GitCommit
-}
-
 type StaticAssets struct {
 	GitIcon string
 }
+
+var dateFmt string = "2006-01-02 15:04:05"
 
 func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 
@@ -135,6 +97,19 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	// Setup function map
 	fm := template.FuncMap{
 		"split": strings.Split,
+		"string": func(b []byte) string {
+			return string(b)
+		},
+		"markdown": func(b []byte) template.HTML {
+			marked := blackfriday.Run(b)
+			return template.HTML(marked)
+		},
+		"dir": func(path string) string {
+			return filepath.Dir(path)
+		},
+		"base": func(path string) string {
+			return filepath.Base(path)
+		},
 	}
 
 	// Decide which base template to use (default embedded or user defined)
@@ -200,13 +175,16 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 
 	// Create our template data object
 	gb := GitBrowser{
-		Name:   strings.TrimSuffix(filepath.Base(repoPath), ".git"),
-		Path:   r.URL.Path,
-		Page:   pageName,
-		Host:   r.Host,
-		Now:    time.Now().UTC().Format(time.UnixDate),
-		Assets: static_assets,
-		Root:   pfx,
+		Name:     strings.TrimSuffix(filepath.Base(repoPath), ".git"),
+		Path:     r.URL.Path,
+		Page:     pageName,
+		PageArgs: pageArgs,
+		Host:     r.Host,
+		Now:      time.Now().UTC().Format(time.UnixDate),
+		Assets:   static_assets,
+		Root:     pfx,
+
+		Repo: repo,
 	}
 
 	// Open the description file
@@ -239,36 +217,6 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	cloneUrl := r.URL.Scheme + "://" + r.Host + "/" + pfx + ".git"
 	gb.CloneURL = cloneUrl
 
-	// Extract branches from repo
-	branches, err := repo.Branches()
-	if err != nil {
-		return caddyhttp.Error(http.StatusInternalServerError, err)
-	}
-	branches.ForEach(func(r *plumbing.Reference) error {
-		b := GitRef{
-			Hash: r.Hash().String(),
-			Type: r.Type().String(),
-			Name: r.Name().Short(),
-		}
-		gb.Branches = append(gb.Branches, b)
-		return nil
-	})
-
-	// Extract tags
-	tags, err := repo.Tags()
-	if err != nil {
-		return caddyhttp.Error(http.StatusInternalServerError, err)
-	}
-	tags.ForEach(func(r *plumbing.Reference) error {
-		t := GitRef{
-			Hash: r.Hash().String(),
-			Type: r.Type().String(),
-			Name: r.Name().Short(),
-		}
-		gb.Tags = append(gb.Tags, t)
-		return nil
-	})
-
 	var refStr = "HEAD"
 	if r.URL.Query().Has("ref") {
 		refStr = r.URL.Query().Get("ref")
@@ -277,140 +225,13 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	} else if r.URL.Query().Has("tag") {
 		refStr = "refs/tags/" + r.URL.Query().Get("tag")
 	}
+	gb.RefString = refStr
 
 	rev, err := repo.ResolveRevision(plumbing.Revision(refStr))
 	if err != nil {
 		return caddyhttp.Error(503, err)
 	}
-
-	if pageName == "log" {
-		// Extract commits if needed
-		commits, _ := repo.Log(&git.LogOptions{From: *rev})
-		var unsortedCommits = make(map[int64]GitCommit)
-		commits.ForEach(func(c *object.Commit) error {
-			commit := GitCommit{
-				Hash:      c.Hash.String(),
-				Committer: c.Author.String(),
-				Message:   c.Message,
-				Date:      c.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
-			}
-			unsortedCommits[c.Committer.When.Unix()] = commit
-			return nil
-		})
-
-		keys := make([]int, 0, len(unsortedCommits))
-		for k := range unsortedCommits {
-			keys = append(keys, int(k))
-		}
-		sort.Sort(sort.Reverse(sort.IntSlice(keys)))
-
-		for _, key := range keys {
-			gb.Commits = append(gb.Commits, unsortedCommits[int64(key)])
-		}
-
-	} else if pageName == "tree" {
-		refCommit, _ := repo.CommitObject(*rev)
-		tree, err := refCommit.Tree()
-		if err != nil {
-			return caddyhttp.Error(503, err)
-		}
-		if pageArgs != "" {
-			tree, err = tree.Tree(pageArgs)
-			if err != nil {
-				return caddyhttp.Error(503, err)
-			}
-		}
-		var files []string
-		var dirs []string
-		for _, entry := range tree.Entries {
-			if entry.Mode.IsFile() {
-				files = append(files, entry.Name)
-			} else {
-				// Directory
-				dirs = append(dirs, entry.Name)
-			}
-		}
-		// Sort files and dirs list in alphabetical order
-		sort.Strings(files)
-		sort.Strings(dirs)
-		commitNodeIndex := commitgraph.NewObjectCommitNodeIndex(repo.Storer)
-		commitNode, err := commitNodeIndex.Get(*rev)
-		if err != nil {
-			return caddyhttp.Error(503, err)
-		}
-		// fmt.Println(pageArgs)
-		fileRevs, err := getLastCommitForPaths(commitNode, pageArgs, files)
-		if err != nil {
-			return caddyhttp.Error(503, err)
-		}
-		dirRevs, err := getLastCommitForPaths(commitNode, pageArgs, dirs)
-		if err != nil {
-			return caddyhttp.Error(503, err)
-		}
-
-		for _, file := range files {
-			rev := fileRevs[file]
-			fileObj, err := rev.File(filepath.Join(pageArgs, file))
-			if err != nil {
-				fmt.Printf("Couldn't find file: %s %v\n", pageArgs+file, err)
-			} else {
-				f := GitFile{
-					Hash: fileObj.Hash.String(),
-					Name: file,
-					Mode: fileObj.Mode.String(),
-					Commit: GitCommit{
-						Hash:      rev.Hash.String(),
-						Committer: rev.Author.Name,
-						Date:      rev.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
-						Message:   rev.Message,
-					},
-				}
-				gb.Files = append(gb.Files, f)
-			}
-		}
-
-		for _, dir := range dirs {
-			rev := dirRevs[dir]
-			d := GitDir{
-				Name: dir,
-				Commit: GitCommit{
-					Hash:      rev.Hash.String(),
-					Committer: rev.Author.Name,
-					Date:      rev.Committer.When.UTC().Format("2006-01-02 03:04:05 PM"),
-					Message:   rev.Message,
-				},
-			}
-			gb.Dirs = append(gb.Dirs, d)
-		}
-	} else if pageName == "blob" {
-		if pageArgs == "" {
-			return caddyhttp.Error(404, fmt.Errorf("no file specified in blob request"))
-		}
-		fileHash := plumbing.NewHash(pageArgs)
-		fileBlob, err := repo.BlobObject(fileHash)
-		if err != nil {
-			return caddyhttp.Error(404, err)
-		}
-		blobReader, err := fileBlob.Reader()
-		if err != nil {
-			return caddyhttp.Error(503, err)
-		}
-		strBuilder := new(strings.Builder)
-		_, err = io.Copy(strBuilder, blobReader)
-		if err != nil {
-			return caddyhttp.Error(503, err)
-		}
-		gb.Blob = strBuilder.String()
-		gb.BlobInfo.Name = fileBlob.ID().String()
-
-	} else if pageName == "home" {
-		refCommit, err := repo.CommitObject(*rev)
-		if err != nil {
-			return caddyhttp.Error(503, err)
-		}
-		gb.Updated = refCommit.Committer.When.UTC().Format("2006-01-02 03:04:05 PM")
-		gb.Committer = refCommit.Author.String()
-	}
+	gb.RefHash = rev
 
 	gsrv.logger.Info("serving git browser",
 		zap.String("request_path", r.URL.Path),
@@ -420,7 +241,22 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 		zap.String("template_page", templatePageName),
 	)
 
-	// Fun with headers
+	if pageName == "log" {
+		gb.browseLog()
+	} else if pageName == "tree" {
+		gb.browseTree()
+	} else if pageName == "blob" {
+		gb.browseBlob()
+	} else if pageName == "home" {
+		gb.browseHome()
+	} else if pageName == "raw" {
+		gb.browseRaw()
+		// we just serve the raw file content after setting the mimetype
+		gb.serveRaw(w)
+		return nil
+	}
+
+	// Set content type header
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	// Write to connection
@@ -431,181 +267,4 @@ func (gsrv *GitServer) serveGitBrowser(repoPath string, w http.ResponseWriter, r
 	// fmt.Fprintf(w, "<html><h1>%s</html></h1>", refString)
 
 	return nil
-}
-
-type commitAndPaths struct {
-	commit commitgraph.CommitNode
-	// Paths that are still on the branch represented by commit
-	paths []string
-	// Set of hashes for the paths
-	hashes map[string]plumbing.Hash
-}
-
-func getCommitTree(c commitgraph.CommitNode, treePath string) (*object.Tree, error) {
-	tree, err := c.Tree()
-	if err != nil {
-		return nil, err
-	}
-
-	// Optimize deep traversals by focusing only on the specific tree
-	if treePath != "" {
-		tree, err = tree.Tree(treePath)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return tree, nil
-}
-
-// func getFullPath(treePath, path string) string {
-// 	if treePath != "" {
-// 		if path != "" {
-// 			return treePath + "/" + path
-// 		}
-// 		return treePath
-// 	}
-// 	return path
-// }
-
-func getFileHashes(c commitgraph.CommitNode, treePath string, paths []string) (map[string]plumbing.Hash, error) {
-	tree, err := getCommitTree(c, treePath)
-	if err == object.ErrDirectoryNotFound {
-		// The whole tree didn't exist, so return empty map
-		return make(map[string]plumbing.Hash), nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	hashes := make(map[string]plumbing.Hash)
-	for _, path := range paths {
-		if path != "" {
-			entry, err := tree.FindEntry(path)
-			if err == nil {
-				hashes[path] = entry.Hash
-			}
-		} else {
-			hashes[path] = tree.Hash
-		}
-	}
-
-	return hashes, nil
-}
-
-func getLastCommitForPaths(c commitgraph.CommitNode, treePath string, paths []string) (map[string]*object.Commit, error) {
-	// We do a tree traversal with nodes sorted by commit time
-	heap := binaryheap.NewWith(func(a, b interface{}) int {
-		if a.(*commitAndPaths).commit.CommitTime().Before(b.(*commitAndPaths).commit.CommitTime()) {
-			return 1
-		}
-		return -1
-	})
-
-	resultNodes := make(map[string]commitgraph.CommitNode)
-	initialHashes, err := getFileHashes(c, treePath, paths)
-	if err != nil {
-		return nil, err
-	}
-
-	// Start search from the root commit and with full set of paths
-	heap.Push(&commitAndPaths{c, paths, initialHashes})
-
-	for {
-		cIn, ok := heap.Pop()
-		if !ok {
-			break
-		}
-		current := cIn.(*commitAndPaths)
-
-		// Load the parent commits for the one we are currently examining
-		numParents := current.commit.NumParents()
-		var parents []commitgraph.CommitNode
-		for i := 0; i < numParents; i++ {
-			parent, err := current.commit.ParentNode(i)
-			if err != nil {
-				break
-			}
-			parents = append(parents, parent)
-		}
-
-		// Examine the current commit and set of interesting paths
-		pathUnchanged := make([]bool, len(current.paths))
-		parentHashes := make([]map[string]plumbing.Hash, len(parents))
-		for j, parent := range parents {
-			parentHashes[j], err = getFileHashes(parent, treePath, current.paths)
-			if err != nil {
-				break
-			}
-
-			for i, path := range current.paths {
-				if parentHashes[j][path] == current.hashes[path] {
-					pathUnchanged[i] = true
-				}
-			}
-		}
-
-		var remainingPaths []string
-		for i, path := range current.paths {
-			// The results could already contain some newer change for the same path,
-			// so don't override that and bail out on the file early.
-			if resultNodes[path] == nil {
-				if pathUnchanged[i] {
-					// The path existed with the same hash in at least one parent so it could
-					// not have been changed in this commit directly.
-					remainingPaths = append(remainingPaths, path)
-				} else {
-					// There are few possible cases how can we get here:
-					// - The path didn't exist in any parent, so it must have been created by
-					//   this commit.
-					// - The path did exist in the parent commit, but the hash of the file has
-					//   changed.
-					// - We are looking at a merge commit and the hash of the file doesn't
-					//   match any of the hashes being merged. This is more common for directories,
-					//   but it can also happen if a file is changed through conflict resolution.
-					resultNodes[path] = current.commit
-				}
-			}
-		}
-
-		if len(remainingPaths) > 0 {
-			// Add the parent nodes along with remaining paths to the heap for further
-			// processing.
-			for j, parent := range parents {
-				// Combine remainingPath with paths available on the parent branch
-				// and make union of them
-				remainingPathsForParent := make([]string, 0, len(remainingPaths))
-				newRemainingPaths := make([]string, 0, len(remainingPaths))
-				for _, path := range remainingPaths {
-					if parentHashes[j][path] == current.hashes[path] {
-						remainingPathsForParent = append(remainingPathsForParent, path)
-					} else {
-						newRemainingPaths = append(newRemainingPaths, path)
-					}
-				}
-
-				if remainingPathsForParent != nil {
-					heap.Push(&commitAndPaths{parent, remainingPathsForParent, parentHashes[j]})
-				}
-
-				if len(newRemainingPaths) == 0 {
-					break
-				} else {
-					remainingPaths = newRemainingPaths
-				}
-			}
-		}
-	}
-
-	// Post-processing
-	result := make(map[string]*object.Commit)
-	for path, commitNode := range resultNodes {
-		var err error
-		result[path], err = commitNode.Commit()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return result, nil
 }

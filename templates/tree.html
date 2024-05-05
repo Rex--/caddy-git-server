@@ -1,18 +1,22 @@
 {{ define "page" }}
 {{ $root := .Root }}
 {{ $path := .Path }}
-    <h1 class="text-xl mx-4 p-2">Repository Tree</h1>
+    <p class="text-xl font-bold mx-4 p-2">{{ base .Root }}/{{if .PageArgs}}{{.PageArgs}}/{{end}}</p>
     <div class="grid grid-cols-1 border-y border-neutral-300 divide-y divide-neutral-300 mb-4 mx-4">
-        {{ range .Dirs }}
+        {{ range .PageData.Dirs }}
         <div class="flex flex-row px-4">
+            {{ if (eq .Name "..") }}
+            <span class="flex-none"><a class="cursor-pointer" onclick="window.location='{{dir $path}}'+window.location.search;">{{.Name}}</a></span>
+            {{ else }}
             <span class="flex-none"><a class="cursor-pointer" onclick="window.location='{{$path}}/{{.Name}}'+window.location.search;">{{.Name}}/</a></span>
             <span class="grow font-mono text-right px-4 truncate">{{index (split .Commit.Message "\n") 0}}</span>
             <span class="flex-none font-bold text-right">{{.Commit.Date}}</span>
+            {{ end }}
         </div>
         {{ end }}
-        {{ range .Files }}
+        {{ range .PageData.Files }}
         <div class="flex flex-row px-4">
-            <span class="flex-none"><a class="cursor-pointer" onclick="window.location='/{{$root}}/blob/{{.Hash}}'+window.location.search;">{{.Name}}</a></span>
+            <span class="flex-none"><a class="cursor-pointer" onclick="window.location='/{{$root}}/blob/{{.Path}}'+window.location.search;">{{.Name}}</a></span>
             <span class="grow font-mono text-right px-4 truncate">{{index (split .Commit.Message "\n") 0}}</span>
             <span class="flex-none font-bold text-right">{{.Commit.Date}}</span>
         </div>

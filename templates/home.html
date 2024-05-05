@@ -10,11 +10,11 @@
             </tr>
             <tr>
                 <th class="border-y border-neutral-300 bg-neutral-200 text-right px-2">Updated</th>
-                <td class="border-y border-neutral-300 px-2">{{.Updated}}</td>
+                <td class="border-y border-neutral-300 px-2">{{.PageData.Updated}}</td>
             </tr>
             <tr>
                 <th class="border-y border-neutral-300 bg-neutral-200 text-right px-2">Committer</th>
-                <td class="border-y border-neutral-300 px-2">{{.Committer}}</td>
+                <td class="border-y border-neutral-300 px-2">{{.PageData.Committer}}</td>
             </tr>
             <tr>
                 <th class="border-y border-neutral-300 bg-neutral-200 text-right px-2">Description</th>
@@ -29,13 +29,13 @@
             <h2 class="text-lg">branches</h2>
         </div>
         <div class="grid grid-cols-1 mx-4 overflow-y-auto max-h-32 border-x border-b border-neutral-300 mb-1">
-            {{range .Branches}}
+            {{range .PageData.Branches}}
             <a href="/{{$rootURL}}?branch={{.Name}}">
                 <div class="hover:bg-neutral-100 px-4">{{.Name}}</div>
             </a>
             {{end}}
         </div>
-        {{ with .Tags }}
+        {{ with .PageData.Tags }}
         <div class="bg-neutral-300 rounded px-2">
             <h2 class="text-lg">tags</h2>
         </div>
