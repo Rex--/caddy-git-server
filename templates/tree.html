@@ -1,26 +1,86 @@
 {{ define "page" }}
 {{ $root := .Root }}
 {{ $path := .Path }}
-    <p class="text-xl font-bold mx-4 p-2">{{ base .Root }}/{{if .PageArgs}}{{.PageArgs}}/{{end}}</p>
-    <div class="grid grid-cols-1 border-y border-neutral-300 divide-y divide-neutral-300 mb-4 mx-4">
-        {{ range .PageData.Dirs }}
-        <div class="flex flex-row px-4">
-            {{ if (eq .Name "..") }}
-            <span class="flex-none"><a class="cursor-pointer" onclick="window.location='{{dir $path}}'+window.location.search;">{{.Name}}</a></span>
-            {{ else }}
-            <span class="flex-none"><a class="cursor-pointer" onclick="window.location='{{$path}}/{{.Name}}'+window.location.search;">{{.Name}}/</a></span>
-            <span class="grow font-mono text-right px-4 truncate">{{index (split .Commit.Message "\n") 0}}</span>
-            <span class="flex-none font-bold text-right">{{.Commit.Date}}</span>
-            {{ end }}
+{{ $query := .Query }}
+{{ $filepath := index (split .Path "tree/") (sub (len (split .Path "tree/")) 1) }}
+<div class="px-4 sm:px-6 lg:px-8">
+  <div class="mt-6 flow-root">
+    <div class="-mx-4 -my-2 sm:-mx-6 lg:-mx-8">
+      <div class="inline-block min-w-full max-w-full py-2 align-middle sm:px-6 lg:px-8">
+        <div class="overflow-hidden shadow-sm ring-1 ring-black/5 sm:rounded-lg">
+          <table class="min-w-full max-w-full divide-y divide-gray-300">
+            <thead class="bg-gray-50">
+              <tr>
+                <nav class="flex py-3.5 sm:px-2 bg-gray-50" aria-label="Breadcrumb">
+                  <ol role="list" class="flex items-center space-x-4">
+                      <li>
+                      <div>
+                          <a href="/{{.Root}}/tree{{with $query}}?{{.}}{{end}}" class="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700">{{ .Name }}</a>
+                      </div>
+                      </li>
+
+                      {{ if ne $filepath $path}}
+                      {{ range (split (dir $filepath) "/") }}
+                      {{ if ne . "."}}
+                      <li>
+                      <div class="flex items-center">
+                          <svg class="size-5 shrink-0 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                          <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                          </svg>
+                          <a href="/{{$root}}/tree/{{index (split $filepath .) 0 }}{{.}}{{with $query}}?{{.}}{{end}}" class="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700">{{.}}</a>
+                      </div>
+                      </li>
+                      {{ end }}
+                      {{ end }}
+                      <li>
+                      <div class="flex items-center">
+                          <svg class="size-5 shrink-0 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                          <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                          </svg>
+                          <p class="cursor-default ml-4 text-sm font-medium text-gray-900">{{base $filepath}}</p>
+                      </div>
+                      </li>
+                      {{ end }}
+
+                  </ol>
+                </nav>
+                <!-- <th scope="col" class="py-3.5 pr-3 pl-4 text-left text-sm font-semibold text-gray-900 sm:pl-6">Name</th>
+                <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Commit Message</th>
+                <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Date</th> -->
+                <!-- <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Role</th>
+                <th scope="col" class="relative py-3.5 pr-4 pl-3 sm:pr-6">
+                  <span class="sr-only">Edit</span>
+                </th> -->
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200 bg-white">
+              {{ range .PageData.Dirs }}
+              <tr>
+                {{ if (eq .Name "..") }}
+                  <td class="py-4 pr-3 pl-4 text-sm font-medium whitespace-nowrap text-gray-900 sm:pl-6"><a href="{{ dir $path }}{{with $query}}?{{.}}{{end}}">{{.Name}}</a></td>
+                  <td class="px-3 py-4 text-sm whitespace-nowrap text-gray-500"></td>
+                  <td class="px-3 py-4 text-sm whitespace-nowrap text-gray-500"></td>
+                {{ else }}
+                  <td class="py-4 pr-3 pl-4 text-sm font-medium whitespace-nowrap text-gray-900 sm:pl-6"><a href="{{$path}}/{{.Name}}{{with $query}}?{{.}}{{end}}">{{.Name}}/</a></td>
+                  <td class="px-3 py-4 text-sm truncate text-gray-500">{{index (split .Commit.Message "\n") 0}}</td>
+                  <td class="px-3 py-4 text-sm whitespace-nowrap text-gray-500">{{.Commit.Date}}</td>
+                {{ end }}
+              </tr>
+              {{ end }}
+
+              {{ range .PageData.Files }}
+              <tr>
+                  <td class="py-4 pr-3 pl-4 text-sm font-medium whitespace-nowrap text-gray-900 sm:pl-6"><a href="/{{$root}}/blob/{{.Path}}{{with $query}}?{{.}}{{end}}">{{.Name}}</a></td>
+                  <td class="px-3 py-4 text-sm whitespace-nowrap text-gray-500">{{index (split .Commit.Message "\n") 0}}</td>
+                  <td class="px-3 py-4 text-sm whitespace-nowrap text-gray-500">{{.Commit.Date}}</td>
+              </tr>
+              {{ end }}
+            </tbody>
+          </table>
         </div>
-        {{ end }}
-        {{ range .PageData.Files }}
-        <div class="flex flex-row px-4">
-            <span class="flex-none"><a class="cursor-pointer" onclick="window.location='/{{$root}}/blob/{{.Path}}'+window.location.search;">{{.Name}}</a></span>
-            <span class="grow font-mono text-right px-4 truncate">{{index (split .Commit.Message "\n") 0}}</span>
-            <span class="flex-none font-bold text-right">{{.Commit.Date}}</span>
-        </div>
-        {{ end }}
+      </div>
     </div>
-    <!-- <h1 class="m-5 text-xl text-center">Repository is empty!</h1> -->
+  </div>
+</div>
+
 {{ end }}

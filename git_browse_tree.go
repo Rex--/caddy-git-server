@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/emirpasic/gods/trees/binaryheap"
@@ -82,6 +83,11 @@ func (gb *GitBrowser) browseTree() error {
 		if err != nil {
 			fmt.Printf("Couldn't find file: %s %v\n", gb.PageArgs+file, err)
 		} else {
+			msg := strings.TrimSpace(rev.Message)
+			if len(msg) > 50 {
+				rmsg := []rune(msg)
+				msg = string(rmsg[:50]) + "..."
+			}
 			f := GitFile{
 				Hash: fileObj.Hash.String(),
 				Path: filepath.Join(gb.PageArgs, file),
@@ -91,7 +97,7 @@ func (gb *GitBrowser) browseTree() error {
 					Hash:      rev.Hash.String(),
 					Committer: rev.Author.Name,
 					Date:      rev.Committer.When.UTC().Format(dateFmt),
-					Message:   rev.Message,
+					Message:   msg,
 				},
 			}
 			pageData.Files = append(pageData.Files, f)

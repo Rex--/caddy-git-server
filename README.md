@@ -56,20 +56,39 @@ git.example.com {
 ```
 
 ## Usage
-The git_server will serve bare git repositories that are recursively contained
-within the root directory. The git_server only responds to git clients
+
+Caddy-git-server will serve bare git repositories that are recursively contained
+within the root directory. Caddy-git-server only responds to git clients
 ('Git-Protocol' header is present OR a user agent starting with 'git'), unless
 the browse page is enabled, in which case a request to the root of each
-repository returns a small info page.
+repository returns a page enabling you to browse source code, view generated
+markdown and kicad files, and access git logs and diffs.
+
+### Creating Repositories
 
 You can create a bare repository with the `--bare` flag, no special setup is
 required. It is only required that this bare repository be contained in the
 `<root>` directory (or subdirectory).
 
+### Pulling
+
 The following will clone a repository on `example.com` that is located at
 `<root>/git/example.git`:
 ```
 git clone https://example.com/git/example.git
+```
+
+The proper clone url for each repository is also displayed on it's browse page.
+
+### Pushing
+
+Caddy-git-server does not support pushing and there are no plans to implement it.
+
+It is recommened to set up ssh access with permissions to access the `<root>`
+directory. You can then push to the reposity over ssh using something like:
+```
+git add remote <remote> <remote_ip>:/path/to/<root>/example.git
+git push <remote> <branch>
 ```
 
 
@@ -78,16 +97,18 @@ git clone https://example.com/git/example.git
 **Caddyfile** - The `git_server` directive attempts to mimic the built-in
 `file_server` directive +/- a few options.
 ```
-git_server [match] [browse] {
+git_server [browse] {
     root <path>
     template_dir <path/to/templates/>
 }
 ```
 
-- `<match>` - request pattern to match
+<!-- - `<match>` - request pattern to match -->
 - `browse` - enable repository browser (available at the root of the repo)
 - `root <path>` - root path of git directories
-- `template_dir <path>` - directory containing templates that override the defaults.
+- `depth <int>` - fow far to recurse into root directory to find repositories. 0 = no limit, 1 = only root, etc.
+- `template_dir <path>` - directory containing templates that override the embedded defaults
+- `asset_dir <path>` - directory containing assets that oveerride the embedded defaults
 
 
 **JSON**

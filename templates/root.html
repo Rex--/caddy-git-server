@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html class="h-full bg-gray-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+    <link rel="stylesheet" href="/assets/style.css">
+    <title>Git - {{ .Host }}</title>
+</head>
+<body class="h-full">
+<div class="min-h-full">
+
+  <nav class="bg-gray-800">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div class="flex h-16 items-center justify-between">
+        <div class="flex items-center">
+          <div class="shrink-0">
+            <img class="size-8" src="/assets/cgs-icon.png" alt="caddy-git-server" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      {{ range $name, $tagline := .PageData.Repositories }}
+      <div class="px-4 sm:px-6 lg:px-8">
+        <div class="mt-6 flow-root">
+          <div class="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+            <div class="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
+              <div class="overflow-hidden shadow-sm ring-1 ring-black/5 sm:rounded-lg divide-y divide-gray-300">
+                  <div class="py-3.5 px-4 sm:px-6 bg-gray-50">
+                    <p class="text-3xl font-bold inline-block"><a href="/{{$name}}">{{$name}}</a></p>
+                    <p class="inline-block pl-4 text-gray-500">{{$tagline}}</p>
+                  </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {{ end }}
+    </div>
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    </div>
+  </main>
+
+  <footer class="bg-gray-300 mt-6 sticky top-[100vh]">
+    <div class="px-3 py-2 font-medium text-large text-gray-800 text-center">
+      hosted with
+      <a href="https://github.com/Rex--/caddy-git-server" class="underline">
+      caddy-git-server</a>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

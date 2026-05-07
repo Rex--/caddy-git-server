@@ -1,0 +1,37 @@
+/* @tailwind base;
+@tailwind components;
+@tailwind utilities; */
+
+/* Default values are for markdown */
+
+div.markdown {
+    h1 {
+        font-size: xx-large;
+        text-decoration: underline;
+        font-weight: bold;
+    }
+    
+    h2 {
+        font-size: x-large;
+        font-weight: bold;
+    }
+
+    h3 {
+        font-size: large;
+        font-weight: bold;
+    }
+
+    p {
+        /* @apply whitespace-pre; */
+        /* white-space: pre; */
+        font-size: medium;
+    }
+
+    ul {
+        /* @apply list-disc; */
+        /* @apply list-inside; */
+        list-style-type: disc;
+        list-style-position: inside;
+    }
+}
+

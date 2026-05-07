@@ -31,15 +31,17 @@ func (gs *GitServer) serveGitClient(repoPath string, w http.ResponseWriter, r *h
 		zap.String("git_client", r.UserAgent()),
 	)
 
+	// Only serve v0 because we dont support v2 yet
+	return gs.serveGitV0(repoPath, w, r, next)
+
 	// Serve v0 or v2 based on header
-	if gs.Protocol == "smart" || (r.Header.Get("Git-Protocol") == "version=2" && gs.Protocol == "both") {
-		return gs.serveGitV2(repoPath, w, r, next)
-	} else if gs.Protocol == "dumb" || gs.Protocol == "both" {
-		// Serve dumb v0 protocol
-		return gs.serveGitV0(repoPath, w, r, next)
-	} else {
-		return nil
-	}
+	// if gs.Protocol == "smart" || (r.Header.Get("Git-Protocol") == "version=2" && gs.Protocol == "both") {
+	// 	return gs.serveGitV2(repoPath, w, r, next)
+	// } else if gs.Protocol == "dumb" || gs.Protocol == "both" {
+	// 	// Serve dumb v0 protocol
+	// } else {
+	// 	return nil
+	// }
 }
 
 // Serve dumb git client files. These are generated on-the-fly

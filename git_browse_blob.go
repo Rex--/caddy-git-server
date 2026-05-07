@@ -2,6 +2,7 @@ package gitserver
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -80,7 +81,8 @@ func (gb *GitBrowser) browseBlob() error {
 		pageData.FileType = "image"
 		pageData.MIMEType = blobType.MIME.Value
 		pageData.Blob = []byte("/" + gb.Root + "/raw/" + fileHash.String())
-	} else if blobType.MIME.Type == "application" {
+	} else if blobType.MIME.Type == "application" && blobType.MIME.Subtype != "pdf" {
+		println("application:", fileName, blobType.MIME.Value)
 		pageData.FileType = "application"
 		pageData.MIMEType = blobType.MIME.Value
 		pageData.Blob = []byte("/" + gb.Root + "/raw/" + fileHash.String())
@@ -95,9 +97,26 @@ func (gb *GitBrowser) browseBlob() error {
 			return caddyhttp.Error(503, err)
 		}
 
+		// if bytes.Contains(inputMarkdown, []byte("![")) {
+		// 	inputMarkdown = bytes.ReplaceAll(inputMarkdown, []byte("]("), []byte("](/"+gb.Root+"/raw/"))
+		// }
+
 		// marked := blackfriday.Run(inputMarkdown)
 
 		pageData.Blob = inputMarkdown
+	} else if path.Ext(fileName) == ".pdf" {
+		pageData.FileType = "pdf"
+		pageData.Blob = []byte("/" + gb.Root + "/raw/" + fileHash.String())
+	} else if path.Ext(fileName) == ".kicad_sch" || path.Ext(fileName) == ".kicad_pcb" {
+		pageData.FileType = "kicad"
+		pageData.Blob = []byte("/" + gb.Root + "/raw/" + gb.PageArgs)
+	} else if path.Ext(fileName) == ".kicad_pro" {
+		pageData.FileType = "kicad_pro"
+		projectName, found := strings.CutSuffix(gb.PageArgs, "pro")
+		if !found {
+			return caddyhttp.Error(503, errors.New("Unknown kicad project file"))
+		}
+		pageData.Blob = []byte("/" + gb.Root + "/raw/" + projectName)
 	} else {
 		pageData.FileType = "text"
 		strBuilder := new(strings.Builder)
@@ -126,9 +145,42 @@ func (gb *GitBrowser) browseRaw() error {
 	pageData := new(GitBrowserBlob)
 	fileHash := plumbing.NewHash(gb.PageArgs)
 	fileBlob, err := gb.Repo.BlobObject(fileHash)
+	// if err != nil {
+	// 	return caddyhttp.Error(404, err)
+	// }
+	// var fileName string
 	if err != nil {
-		return caddyhttp.Error(404, err)
-	}
+		// Try to see if file path
+		refCommit, _ := gb.Repo.CommitObject(*gb.RefHash)
+		tree, err := refCommit.Tree()
+		if err != nil {
+			return caddyhttp.Error(503, err)
+		}
+		file, err := tree.File(gb.PageArgs)
+		if err != nil {
+			return caddyhttp.Error(503, err)
+		}
+		fileHash = file.Hash
+		fileBlob = &file.Blob
+		// fileName = file.Name
+	} //else {
+	// Extract filename from blob
+	// 	refCommit, _ := gb.Repo.CommitObject(*gb.RefHash)
+	// 	files, err := refCommit.Files()
+	// 	if err != nil {
+	// 		return caddyhttp.Error(503, err)
+	// 	}
+	// 	for file, err := files.Next(); file != nil; {
+	// 		if err != nil {
+	// 			return caddyhttp.Error(503, err)
+	// 		}
+	// 		if file.Hash.String() == fileHash.String() {
+	// 			fileName = file.Name
+	// 			break
+	// 		}
+	// 	}
+	// }
+
 	blobReader, err := fileBlob.Reader()
 	bufBlobReader := bufio.NewReader(blobReader)
 	if err != nil {

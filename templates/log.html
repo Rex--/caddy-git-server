@@ -1,16 +1,35 @@
 {{ define "page" }}
-    {{ with .PageData.Commits }}
-    <h1 class="text-xl mx-4 p-2">Commit Log</h1>
-    <div class="grid grid-cols-1 border-y border-neutral-300 divide-y divide-neutral-300 mb-4 mx-4">
-        {{ range . }}
-        <div class="px-4">
-            <span class="inline-block font-bold">{{.Date}}</span>
-            <span class="inline-block pl-2">{{.Committer}}</span>
-            <span class="inline-block font-mono pl-2">{{.Message}}</span>
+<div class="px-4 sm:px-6 lg:px-8">
+  <div class="mt-6 flow-root">
+    <div class="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+      <div class="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
+        <div class="overflow-hidden shadow-sm ring-1 ring-black/5 sm:rounded-lg divide-y divide-gray-300">
+
+          <!-- <li class="bg-gray-50">
+            <p class="py-3.5 px-4 sm:px-6 text-left text-sm font-medium text-gray-900">Commit Log</p>
+          </li> -->
+          <ul role="list" class="divide-y divide-gray-300">
+            {{ range .PageData.Commits }}
+            <li class="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 py-4 px-3 sm:px-6 sm:flex-nowrap bg-white">
+              <div>
+                <p class="text-sm/6 text-gray-900 whitespace-pre-line">{{ .Message }}</p>
+                <div class="mt-1 flex items-center gap-x-2 text-xs/5 text-gray-500 font-semibold px-2">
+                  <p>
+                    {{ .Committer }}
+                  </p>
+                  <svg viewBox="0 0 2 2" class="size-0.5 fill-current">
+                    <circle cx="1" cy="1" r="1" />
+                  </svg>
+                  <p>{{.Date}}</p>
+                </div>
+              </div>
+            </li>
+            {{end}}
+          </ul>
         </div>
-        {{ end }}
+      </div>
     </div>
-    {{ else }}
-    <h1 class="m-5 text-xl text-center">No commits yet!</h1>
-    {{ end }}
+  </div>
+</div>
+
 {{ end }}

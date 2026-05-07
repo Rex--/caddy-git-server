@@ -1,14 +1,120 @@
 {{ define "page" }}
-<p>{{.PageData.FileName}} - {{.PageData.BlobHash}}</p>
-{{ if (eq .PageData.FileType "image") }}
-<img src="{{string .PageData.Blob}}">
-{{ else if (eq .PageData.FileType "application") }}
-<a class="p-4 font-mono" href="{{string .PageData.Blob}}">View or download this file raw</a>
-{{ else if (eq .PageData.FileType "markdown") }}
-<div class="p-4">
-    {{ markdown .PageData.Blob }}
+{{ $root := .Root }}
+{{ $query := .Query }}
+{{ $filename := .PageData.FileName }}
+<div class="px-4 sm:px-6 lg:px-8">
+  <div class="mt-6 flow-root">
+    <div class="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+      <div class="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
+        <div class="overflow-hidden shadow-sm ring-1 ring-black/5 sm:rounded-lg divide-y divide-gray-300">
+            <div class="flex justify-between py-3.5 sm:px-2 bg-gray-50">
+              <!-- <h1 class="py-3.5 px-4 sm:px-6 text-left text-sm font-semibold text-gray-900">File Browser</h1> -->
+              <nav class="flex" aria-label="Breadcrumb">
+                <ol role="list" class="flex items-center space-x-4">
+                    <li>
+                    <div>
+                        <a href="/{{.Root}}/tree{{with $query}}?{{.}}{{end}}" class="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700">
+                        <span class="">{{ .Name }}</span>
+                        </a>
+                    </div>
+                    </li>
+
+                    {{ range (split (dir .PageData.FileName) "/") }}
+                    {{ if ne . "."}}
+                    <li>
+                    <div class="flex items-center">
+                        <svg class="size-5 shrink-0 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                        </svg>
+                        <a href="/{{$root}}/tree/{{index (split $filename .) 0 }}{{.}}{{with $query}}?{{.}}{{end}}" class="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700">{{.}}</a>
+                    </div>
+                    </li>
+                    {{ end }}
+                    {{ end }}
+
+                    <li>
+                    <div class="flex items-center">
+                        <svg class="size-5 shrink-0 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                        </svg>
+                        <p class="ml-4 text-sm font-medium text-gray-900 cursor-default" aria-current="page">{{ base .PageData.FileName }}</p>
+                    </div>
+                    </li>
+                </ol>
+              </nav>
+              <div class="">
+                <a href="/{{.Root}}/raw/{{.PageData.FileName}}{{with $query}}?{{.}}{{end}}" class="mr-4 text-sm font-medium text-gray-500 hover:text-gray-700">
+                  View Raw
+                </a>
+              </div>
+            </div>
+            <div class="bg-white py-3.5 px-4 sm:px-6">
+              {{ if (eq .PageData.FileType "image") }}
+                <img src="{{string .PageData.Blob}}">
+              {{ else if (eq .PageData.FileType "application") }}
+                <a class="font-mono" href="{{string .PageData.Blob}}">View or download this file raw</a>
+              {{ else if (eq .PageData.FileType "markdown") }}
+                <link rel="stylesheet" href="/assets/markdown.css">
+                <div class="markdown">
+                {{ markdown .PageData.Blob }}
+                </div>
+              {{ else if (eq .PageData.FileType "pdf") }}
+              <!-- 
+              h-screen
+              h-dvh
+              h-lvh
+              h-svh
+
+
+               -->
+                <div id="pdf-viewer" class="h-dvh"></div>
+
+                <script type="module">
+                  import EmbedPDF from 'https://cdn.jsdelivr.net/npm/@embedpdf/snippet@2/dist/embedpdf.js';
+                
+                  EmbedPDF.init({
+                    type: 'container',
+                    target: document.getElementById('pdf-viewer'),
+                    src: '{{ string .PageData.Blob }}',
+                    theme: { preference: 'light' }
+                  });
+                </script>
+              {{ else if (eq .PageData.FileType "kicad") }}
+                <script type="module" src="/assets/kicanvas.js"></script>
+                <kicanvas-embed
+                    src="{{ string .PageData.Blob }}{{with $query}}?{{.}}{{end}}"
+                    controls="full"
+                    controlslist="nodownload">
+                </kicanvas-embed>
+              {{ else if (eq .PageData.FileType "kicad_pro") }}
+                <script type="module" src="/assets/kicanvas.js"></script>
+                <kicanvas-embed
+                  controls="full"
+                  controlslist="nodownload">
+                  <kicanvas-source src="{{ string .PageData.Blob }}sch{{with $query}}?{{.}}{{end}}"></kicanvas-source>
+                  <kicanvas-source src="{{ string .PageData.Blob }}pcb{{with $query}}?{{.}}{{end}}"></kicanvas-source>
+                </kicanvas-embed>
+              {{ else }}
+                <!-- <p class="text-sm font-mono whitespace-pre overflow-x-auto">{{string .PageData.Blob}}</p> -->
+                <!-- <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/default.min.css"> -->
+                <link rel="stylesheet" href="/assets/highlight/default.min.css">
+                <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script> -->
+                 <script src="/assets/highlight/highlight.min.js"></script>
+
+                <!-- and it's easy to individually load additional languages -->
+                <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/go.min.js"></script> -->
+
+                <script>hljs.highlightAll();</script>
+                 <div class="overflow-hidden">
+                   <pre><code class="text-sm overflow-x-hidden">{{ string .PageData.Blob }}</code></pre>
+                 </div>
+              {{ end }}
+            </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
-{{ else }}
-<p class="p-4 font-mono whitespace-pre overflow-x-auto">{{string .PageData.Blob}}</p>
-{{ end }}
+
+
 {{end}}
